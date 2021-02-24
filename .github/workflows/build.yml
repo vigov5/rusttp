@@ -1,0 +1,59 @@
+name: CD Pipeline
+
+on: [push]
+
+jobs:
+  build-nix:
+    runs-on: ${{ matrix.os }}
+    if: github.ref == 'refs/heads/main'
+    strategy:
+      matrix:
+        type: [ubuntu-x64, ubuntu-x86]
+        include:
+          - type: ubuntu-x64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            name: x86_64-linux-rusttp
+            path: target/x86_64-unknown-linux-musl/release/rusttp
+            pkg_config_path: /usr/lib/x86_64-linux-gnu/pkgconfig
+          - type: ubuntu-x86
+            os: ubuntu-latest
+            target: i686-unknown-linux-musl
+            name: x86-linux-rusttp
+            path: target/i686-unknown-linux-musl/release/rusttp
+            pkg_config_path: /usr/lib/i686-linux-gnu/pkgconfig
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libssl-dev pkg-config
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.target }}
+          override: true
+      - uses: actions-rs/cargo@v1
+        env:
+          PKG_CONFIG_PATH: ${{ matrix.pkg_config_path }}
+          OPENSSL_DIR: /usr/lib/ssl
+        with:
+          use-cross: true
+          command: build
+          args: --release --target=${{ matrix.target }}
+      - name: Strip symbols from binary
+        run: |
+          strip -s ${{ matrix.path }}
+      - name: Build tar.gz for homebrew installs
+        if: matrix.type == 'ubuntu-x64'
+        run: |
+          tar czf ${{ matrix.name }}.tar.gz -C target/x86_64-unknown-linux-musl/release rusttp
+      - uses: actions/upload-artifact@v2
+        with:
+          name: ${{ matrix.name }}
+          path: ${{ matrix.path }}
+      - uses: actions/upload-artifact@v2
+        if: matrix.type == 'ubuntu-x64'
+        with:
+          name: ${{ matrix.name }}.tar.gz
+          path: ${{ matrix.name }}.tar.gz
